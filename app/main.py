@@ -82,7 +82,7 @@ app.include_router(analytics.router, prefix=settings.API_V1_PREFIX)
 # ---------------------------------------------------------------------------
 
 mcp_asgi = mcp.streamable_http_app()
-app.mount("/mcp", mcp_asgi)
+app.mount("/", mcp_asgi)
 
 # ---------------------------------------------------------------------------
 # Static frontend

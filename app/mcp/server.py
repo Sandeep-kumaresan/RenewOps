@@ -38,7 +38,6 @@ from app.services import subscription_service, renewal_service, analytics_servic
 
 mcp = FastMCP(
     name="RenewOps",
-    streamable_http_path="/",
     instructions=(
         "RenewOps subscription and contract management tools. "
         "Use these tools to create, read, and update subscription records "
