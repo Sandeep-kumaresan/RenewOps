@@ -21,12 +21,18 @@ from contextlib import asynccontextmanager
 # ---------------------------------------------------------------------------
 # App initialisation
 # ---------------------------------------------------------------------------
+
+# Configure internal MCP route path to root so FastAPI mount at /mcp forwards cleanly
+mcp.settings.streamable_http_path = ""
 mcp_asgi = mcp.streamable_http_app()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    init_db()
     async with mcp.session_manager.run():
         yield
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -81,8 +87,9 @@ app.include_router(analytics.router, prefix=settings.API_V1_PREFIX)
 # Streamable HTTP MCP Mount (/mcp)
 # ---------------------------------------------------------------------------
 
-mcp_asgi = mcp.streamable_http_app()
-app.mount("/", mcp_asgi)
+
+
+app.mount("/mcp", mcp_asgi)
 
 # ---------------------------------------------------------------------------
 # Static frontend
@@ -116,11 +123,3 @@ def health():
         "mcp_endpoint": "/mcp",
         "demo_org_id": settings.DEMO_ORG_ID,
     }
-
-# ---------------------------------------------------------------------------
-# Startup
-# ---------------------------------------------------------------------------
-
-@app.on_event("startup")
-def on_startup():
-    init_db()
