@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RenewOps – Renewal Risk</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet"/>
+  <link href="/static/css/app.css" rel="stylesheet"/>
+</head>
+<body>
+
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div>
+      <h5 class="mb-0 fw-700">Renewal Risk</h5>
+      <small class="text-muted">Rule-based risk analysis for all active subscriptions</small>
+    </div>
+    <div class="d-flex gap-2">
+      <select id="riskFilter" class="form-select form-select-sm" style="width:140px" onchange="filterRisk()">
+        <option value="">All Risk Levels</option>
+        <option value="High">High</option>
+        <option value="Medium">Medium</option>
+        <option value="Low">Low</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="page-content">
+    <!-- Summary cards -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-4">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#fee2e2;color:#991b1b"><i class="bi bi-shield-x"></i></div>
+          <div>
+            <div class="stat-label">High Risk</div>
+            <div class="stat-value text-danger" id="high-count">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#fef3c7;color:#d97706"><i class="bi bi-shield-exclamation"></i></div>
+          <div>
+            <div class="stat-label">Medium Risk</div>
+            <div class="stat-value text-warning" id="medium-count">—</div>
+          </div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#d1fae5;color:#065f46"><i class="bi bi-shield-check"></i></div>
+          <div>
+            <div class="stat-label">Low Risk</div>
+            <div class="stat-value text-success" id="low-count">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Risk Table -->
+    <div class="table-card">
+      <div class="card-header">Risk Score Breakdown (<span id="risk-count">0</span>)</div>
+      <table class="table mb-0">
+        <thead>
+          <tr>
+            <th>Subscription</th><th>Vendor</th><th>Renewal Date</th><th>Owner</th>
+            <th>Decision</th><th>Risk Score</th><th>Risk Factors</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="risk-body">
+          <tr><td colspan="8" class="text-center text-muted py-5">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Decision Modal -->
+<div class="modal fade" id="decisionModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Update Renewal Decision</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-3">Subscription: <strong id="decisionSubName"></strong></p>
+        <div class="mb-3">
+          <label class="form-label">Decision</label>
+          <select id="decisionSelect" class="form-select">
+            <option>Undecided</option><option>Renew</option><option>Cancel</option><option>Under Review</option>
+          </select>
+        </div>
+        <div>
+          <label class="form-label">Notes (optional)</label>
+          <textarea id="decisionNotes" class="form-control" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="submitDecision()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/app.js"></script>
+<script>
+let allRisk = [];
+let decisionSubId = null;
+const decisionModal = new bootstrap.Modal(document.getElementById('decisionModal'));
+
+async function loadRisk() {
+  try {
+    const data = await api.get('/subscriptions?status=Active&limit=500');
+    allRisk = (data.items || []).filter(s => s.risk).sort((a, b) => b.risk.score - a.risk.score);
+    document.getElementById('high-count').textContent = allRisk.filter(s => s.risk.category === 'High').length;
+    document.getElementById('medium-count').textContent = allRisk.filter(s => s.risk.category === 'Medium').length;
+    document.getElementById('low-count').textContent = allRisk.filter(s => s.risk.category === 'Low').length;
+    renderRisk(allRisk);
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+function filterRisk() {
+  const f = document.getElementById('riskFilter').value;
+  renderRisk(f ? allRisk.filter(s => s.risk.category === f) : allRisk);
+}
+
+function renderRisk(subs) {
+  document.getElementById('risk-count').textContent = subs.length;
+  const tbody = document.getElementById('risk-body');
+  if (!subs.length) {
+    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="bi bi-shield-check"></i><p>No subscriptions match this filter.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = subs.map(s => {
+    const cls = s.risk.category.toLowerCase();
+    const barColor = cls === 'high' ? '#ef4444' : cls === 'medium' ? '#f59e0b' : '#10b981';
+    const reasons = s.risk.reasons.map(r => `<li class="small text-muted">${r}</li>`).join('');
+    return `<tr>
+      <td class="fw-600">${s.name}</td>
+      <td class="text-muted">${s.vendor}</td>
+      <td>${formatDate(s.renewal_date)}<br>${daysUntilLabel(s.renewal_date)}</td>
+      <td>${s.owner || '<span class="text-danger small">Not assigned</span>'}</td>
+      <td>${decisionBadge(s.renewal_decision)}</td>
+      <td>
+        <div class="d-flex flex-column gap-1">
+          <span class="badge risk-${cls} rounded-pill px-2 py-1">${s.risk.category} (${s.risk.score})</span>
+          <div class="d-flex align-items-center gap-1">
+            <div style="width:100px;height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden">
+              <div style="width:${s.risk.score}%;height:100%;background:${barColor};border-radius:999px"></div>
+            </div>
+            <small class="text-muted">${s.risk.score}/100</small>
+          </div>
+        </div>
+      </td>
+      <td><ul class="mb-0 ps-3">${reasons}</ul></td>
+      <td><button class="btn btn-xs btn-outline-primary py-0 px-1" onclick="openDecision('${s.id}','${s.name.replace(/'/g,"\\'")}','${s.renewal_decision}')"><i class="bi bi-pencil"></i> Decide</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function openDecision(id, name, cur) {
+  decisionSubId = id;
+  document.getElementById('decisionSubName').textContent = name;
+  document.getElementById('decisionSelect').value = cur;
+  document.getElementById('decisionNotes').value = '';
+  decisionModal.show();
+}
+
+async function submitDecision() {
+  try {
+    await api.patch(`/subscriptions/${decisionSubId}/decision`, {
+      decision: document.getElementById('decisionSelect').value,
+      changed_by: 'Dashboard',
+      notes: document.getElementById('decisionNotes').value || null,
+    });
+    decisionModal.hide();
+    showToast('Decision updated!', 'success');
+    loadRisk();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+loadRisk();
+</script>
+</body>
+</html>
+

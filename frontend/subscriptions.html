@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RenewOps – Subscriptions</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet"/>
+  <link href="/static/css/app.css" rel="stylesheet"/>
+</head>
+<body>
+
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div>
+      <h5 class="mb-0 fw-700">Subscriptions</h5>
+      <small class="text-muted">Manage all subscriptions</small>
+    </div>
+    <button class="btn btn-sm btn-primary" onclick="openCreateModal()">
+      <i class="bi bi-plus-lg me-1"></i>Add Subscription
+    </button>
+  </div>
+
+  <div class="page-content">
+    <!-- Filters -->
+    <div class="table-card mb-3 p-3">
+      <div class="row g-2 align-items-end">
+        <div class="col-md-4">
+          <input id="searchInput" class="form-control form-control-sm" placeholder="Search name or vendor…" oninput="applyFilters()"/>
+        </div>
+        <div class="col-md-2">
+          <select id="statusFilter" class="form-select form-select-sm" onchange="applyFilters()">
+            <option value="">All Statuses</option>
+            <option>Active</option><option>Inactive</option><option>Cancelled</option><option>Paused</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <select id="decisionFilter" class="form-select form-select-sm" onchange="applyFilters()">
+            <option value="">All Decisions</option>
+            <option>Renew</option><option>Cancel</option><option>Under Review</option><option>Undecided</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <select id="deptFilter" class="form-select form-select-sm" onchange="applyFilters()">
+            <option value="">All Departments</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-sm btn-outline-secondary w-100" onclick="resetFilters()">
+            <i class="bi bi-x-circle me-1"></i>Clear
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="table-card">
+      <div class="card-header d-flex justify-content-between">
+        <span>All Subscriptions (<span id="count">0</span>)</span>
+      </div>
+      <div class="table-responsive">
+        <table class="table mb-0">
+          <thead>
+            <tr>
+              <th>Name</th><th>Vendor</th><th>Category</th>
+              <th>Amount</th><th>Billing</th><th>Renewal Date</th>
+              <th>Department</th><th>Status</th><th>Decision</th><th>Risk</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="subs-body">
+            <tr><td colspan="11" class="text-center text-muted py-5">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Create Modal -->
+<div class="modal fade" id="createModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">New Subscription</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="createModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="submitCreate()">Create</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Edit Subscription</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="editModalBody"></div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-primary" onclick="submitEdit()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirm Modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title text-danger">Delete Subscription</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        Are you sure you want to delete <strong id="deleteSubName"></strong>? This cannot be undone.
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button class="btn btn-danger" onclick="confirmDelete()">Delete</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/app.js"></script>
+<script>
+let allSubs = [];
+let editingId = null;
+let deletingId = null;
+const createModal = new bootstrap.Modal(document.getElementById('createModal'));
+const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+const deleteModal = new bootstrap.Modal(document.getElementById('deleteModal'));
+
+function subFormHtml(s = {}) {
+  const v = (key, def = '') => s[key] ?? def;
+  const sel = (key, opt, def = '') => `<option value="" ${!v(key,def)?'selected':''}>Select</option>` +
+    opt.map(o => `<option ${v(key,def)===o?'selected':''}>${o}</option>`).join('');
+  return `<form id="subForm"><div class="row g-3">
+    <div class="col-md-6"><label class="form-label">Name *</label><input name="name" class="form-control" required value="${v('name')}"/></div>
+    <div class="col-md-6"><label class="form-label">Vendor *</label><input name="vendor" class="form-control" required value="${v('vendor')}"/></div>
+    <div class="col-md-6"><label class="form-label">Category *</label><select name="category" class="form-select" required>${sel('category',['Cloud Infrastructure','Productivity','Communication','Developer Tools','Project Management','Design Tools','Security & CDN','Domain','SaaS','AMC','Software License','Other'])}</select></div>
+    <div class="col-md-3"><label class="form-label">Amount *</label><input name="amount" type="number" step="0.01" min="0" class="form-control" required value="${v('amount')}"/></div>
+    <div class="col-md-3"><label class="form-label">Currency</label><select name="currency" class="form-select"><option ${v('currency','INR')==='INR'?'selected':''}>INR</option><option ${v('currency')==='USD'?'selected':''}>USD</option><option ${v('currency')==='EUR'?'selected':''}>EUR</option><option ${v('currency')==='GBP'?'selected':''}>GBP</option></select></div>
+    <div class="col-md-4"><label class="form-label">Billing Cycle *</label><select name="billing_cycle" class="form-select" required>${sel('billing_cycle',['Monthly','Quarterly','Yearly'])}</select></div>
+    <div class="col-md-4"><label class="form-label">Start Date *</label><input name="start_date" type="date" class="form-control" required value="${v('start_date')}"/></div>
+    <div class="col-md-4"><label class="form-label">Renewal Date *</label><input name="renewal_date" type="date" class="form-control" required value="${v('renewal_date')}"/></div>
+    <div class="col-md-6"><label class="form-label">Department</label><input name="department" class="form-control" value="${v('department')}"/></div>
+    <div class="col-md-6"><label class="form-label">Owner</label><input name="owner" class="form-control" value="${v('owner')}"/></div>
+    <div class="col-md-4"><label class="form-label">Status</label><select name="status" class="form-select"><option ${v('status')==='Active'?'selected':''}>Active</option><option ${v('status')==='Inactive'?'selected':''}>Inactive</option><option ${v('status')==='Paused'?'selected':''}>Paused</option><option ${v('status')==='Cancelled'?'selected':''}>Cancelled</option></select></div>
+    <div class="col-md-4"><label class="form-label">Auto-Renewal</label><select name="auto_renewal" class="form-select"><option value="false" ${!v('auto_renewal')?'selected':''}>No</option><option value="true" ${v('auto_renewal')?'selected':''}>Yes</option></select></div>
+    <div class="col-md-4"><label class="form-label">Renewal Decision</label><select name="renewal_decision" class="form-select"><option ${v('renewal_decision','Undecided')==='Undecided'?'selected':''}>Undecided</option><option ${v('renewal_decision')==='Renew'?'selected':''}>Renew</option><option ${v('renewal_decision')==='Cancel'?'selected':''}>Cancel</option><option ${v('renewal_decision')==='Under Review'?'selected':''}>Under Review</option></select></div>
+    <div class="col-12"><label class="form-label">Notes</label><textarea name="notes" class="form-control" rows="2">${v('notes')}</textarea></div>
+  </div></form>`;
+}
+
+async function loadSubs() {
+  try {
+    const data = await api.get('/subscriptions?limit=500');
+    allSubs = data.items;
+    populateDeptFilter();
+    renderTable(allSubs);
+  } catch (e) {
+    showToast('Failed to load subscriptions: ' + e.message, 'danger');
+  }
+}
+
+function populateDeptFilter() {
+  const depts = [...new Set(allSubs.map(s => s.department).filter(Boolean))].sort();
+  const sel = document.getElementById('deptFilter');
+  sel.innerHTML = '<option value="">All Departments</option>' + depts.map(d => `<option>${d}</option>`).join('');
+}
+
+function applyFilters() {
+  const search = document.getElementById('searchInput').value.toLowerCase();
+  const status = document.getElementById('statusFilter').value;
+  const decision = document.getElementById('decisionFilter').value;
+  const dept = document.getElementById('deptFilter').value;
+  const filtered = allSubs.filter(s =>
+    (!search || s.name.toLowerCase().includes(search) || s.vendor.toLowerCase().includes(search)) &&
+    (!status || s.status === status) &&
+    (!decision || s.renewal_decision === decision) &&
+    (!dept || s.department === dept)
+  );
+  renderTable(filtered);
+}
+
+function resetFilters() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('statusFilter').value = '';
+  document.getElementById('decisionFilter').value = '';
+  document.getElementById('deptFilter').value = '';
+  renderTable(allSubs);
+}
+
+function toMonthly(a, c) {
+  if (c === 'Quarterly') return a / 3;
+  if (c === 'Yearly') return a / 12;
+  return a;
+}
+
+function renderTable(subs) {
+  document.getElementById('count').textContent = subs.length;
+  const tbody = document.getElementById('subs-body');
+  if (!subs.length) {
+    tbody.innerHTML = '<tr><td colspan="11"><div class="empty-state"><i class="bi bi-collection text-muted"></i><p>No subscriptions found.</p></div></td></tr>';
+    return;
+  }
+  tbody.innerHTML = subs.map(s => `
+    <tr>
+      <td class="fw-600">${s.name}</td>
+      <td class="text-muted">${s.vendor}</td>
+      <td><span class="badge bg-light text-dark">${s.category}</span></td>
+      <td>${formatCurrency(s.amount, s.currency)}<br><small class="text-muted">${formatCurrency(toMonthly(s.amount, s.billing_cycle), s.currency)}/mo</small></td>
+      <td>${s.billing_cycle}</td>
+      <td>${formatDate(s.renewal_date)}<br>${daysUntilLabel(s.renewal_date)}</td>
+      <td>${s.department || '—'}</td>
+      <td>${statusBadge(s.status)}</td>
+      <td>${decisionBadge(s.renewal_decision)}</td>
+      <td>${riskBadge(s.risk)}</td>
+      <td>
+        <div class="d-flex gap-1">
+          <button class="btn btn-xs btn-outline-primary py-0 px-1" title="Edit" onclick="openEdit('${s.id}')"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-xs btn-outline-danger py-0 px-1" title="Delete" onclick="openDelete('${s.id}', '${s.name.replace(/'/g,"\\'")}')"><i class="bi bi-trash"></i></button>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function openCreateModal() {
+  document.getElementById('createModalBody').innerHTML = subFormHtml();
+  createModal.show();
+}
+
+async function submitCreate() {
+  const form = document.getElementById('subForm');
+  if (!form.checkValidity()) { form.reportValidity(); return; }
+  try {
+    await api.post('/subscriptions', buildFormBody(form));
+    createModal.hide();
+    showToast('Subscription created!', 'success');
+    loadSubs();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+function openEdit(id) {
+  editingId = id;
+  const s = allSubs.find(x => x.id === id);
+  document.getElementById('editModalBody').innerHTML = subFormHtml(s);
+  editModal.show();
+}
+
+async function submitEdit() {
+  const form = document.getElementById('subForm');
+  if (!form.checkValidity()) { form.reportValidity(); return; }
+  try {
+    await api.patch('/subscriptions/' + editingId, buildFormBody(form));
+    editModal.hide();
+    showToast('Subscription updated!', 'success');
+    loadSubs();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+function openDelete(id, name) {
+  deletingId = id;
+  document.getElementById('deleteSubName').textContent = name;
+  deleteModal.show();
+}
+
+async function confirmDelete() {
+  try {
+    await api.del('/subscriptions/' + deletingId);
+    deleteModal.hide();
+    showToast('Subscription deleted.', 'success');
+    loadSubs();
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+loadSubs();
+</script>
+</body>
+</html>
+

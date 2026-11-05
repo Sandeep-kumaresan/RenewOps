@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: renewops-db
+    restart: always
+    environment:
+      POSTGRES_USER: renewops
+      POSTGRES_PASSWORD: renewops
+      POSTGRES_DB: renewops
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U renewops -d renewops"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: .
+    container_name: renewops-backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://renewops:renewops@db:5432/renewops
+      ALLOWED_ORIGINS: "*"
+      MCP_API_KEY: "${MCP_API_KEY:-}"
+      DEMO_ORG_ID: 00000000-0000-0000-0000-000000000001
+      DEMO_ORG_NAME: Demo Organization
+    ports:
+      - "8000:8000"
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # Optional standalone MCP server container (on port 8001)
+  mcp:
+    build: .
+    container_name: renewops-mcp
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg2://renewops:renewops@db:5432/renewops
+      MCP_SERVER_PORT: 8001
+      MCP_API_KEY: "${MCP_API_KEY:-}"
+      DEMO_ORG_ID: 00000000-0000-0000-0000-000000000001
+    ports:
+      - "8001:8001"
+    command: ["uvicorn", "app.mcp.run:app", "--host", "0.0.0.0", "--port", "8001"]
+
+volumes:
+  pgdata:
+    driver: local

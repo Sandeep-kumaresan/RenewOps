@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>RenewOps – Spending Analytics</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet"/>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet"/>
+  <link href="/static/css/app.css" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<div id="sidebar"></div>
+<div id="main">
+  <div id="topbar">
+    <div>
+      <h5 class="mb-0 fw-700">Spending Analytics</h5>
+      <small class="text-muted">Normalised monthly and annual expenditure</small>
+    </div>
+  </div>
+
+  <div class="page-content">
+    <!-- Stat cards -->
+    <div class="row g-3 mb-4">
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-icon bg-primary-soft text-primary"><i class="bi bi-collection-fill"></i></div>
+          <div><div class="stat-label">Active Subs</div><div class="stat-value" id="s-active">—</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#fef3c7;color:#d97706"><i class="bi bi-calendar-week-fill"></i></div>
+          <div><div class="stat-label">Monthly Spend</div><div class="stat-value" id="s-mrr">—</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#d1fae5;color:#065f46"><i class="bi bi-graph-up-arrow"></i></div>
+          <div><div class="stat-label">Annual Spend</div><div class="stat-value" id="s-arr">—</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat-card">
+          <div class="stat-icon" style="background:#fee2e2;color:#991b1b"><i class="bi bi-clock-history"></i></div>
+          <div><div class="stat-label">Due in 30 Days</div><div class="stat-value" id="s-upcoming">—</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-5">
+        <div class="chart-card h-100">
+          <div class="fw-600 mb-3">Department Spend (Monthly)</div>
+          <canvas id="deptDoughnut" height="230"></canvas>
+        </div>
+      </div>
+      <div class="col-md-7">
+        <div class="chart-card h-100">
+          <div class="fw-600 mb-3">Department Spend – Monthly vs Annual</div>
+          <canvas id="deptBar" height="230"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Other currencies breakdown (isolated non-INR) -->
+    <div id="other-currencies-card" class="table-card mb-3" style="display:none">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span>Non-INR Subscriptions (Tracked Separately)</span>
+        <span class="badge bg-secondary-subtle text-secondary">Multi-Currency</span>
+      </div>
+      <table class="table mb-0">
+        <thead><tr><th>Currency</th><th>Active Count</th><th>Monthly Recurring</th><th>Annual Recurring</th></tr></thead>
+        <tbody id="other-currencies-table"></tbody>
+      </table>
+    </div>
+
+    <!-- Department breakdown table -->
+    <div class="table-card mb-3">
+      <div class="card-header">Department-wise Breakdown (INR)</div>
+      <table class="table mb-0">
+        <thead><tr><th>Department</th><th>Monthly Spend</th><th>Annual Spend</th><th>% of Total</th></tr></thead>
+        <tbody id="dept-table"></tbody>
+      </table>
+    </div>
+
+    <!-- Top subs -->
+    <div class="table-card">
+      <div class="card-header">Top 5 Subscriptions by Monthly Cost</div>
+      <table class="table mb-0">
+        <thead><tr><th>Name</th><th>Vendor</th><th>Category</th><th>Billing Cycle</th><th>Actual Amount</th><th>Monthly Equiv.</th><th>Annual Equiv.</th></tr></thead>
+        <tbody id="top-table"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/static/js/app.js"></script>
+<script>
+let doughnutChart = null;
+let barChart = null;
+
+function toMonthly(a, c) { if (c==='Quarterly') return a/3; if (c==='Yearly') return a/12; return a; }
+function toAnnual(a, c) { if (c==='Monthly') return a*12; if (c==='Quarterly') return a*4; return a; }
+
+async function loadAnalytics() {
+  try {
+    const s = await api.get('/analytics/spending');
+    document.getElementById('s-active').textContent = s.total_active;
+    document.getElementById('s-mrr').textContent = formatCurrency(s.monthly_recurring);
+    document.getElementById('s-arr').textContent = formatCurrency(s.annual_recurring);
+    document.getElementById('s-upcoming').textContent = s.upcoming_renewals_30d;
+
+    renderDeptTable(s.department_breakdown, s.monthly_recurring);
+    renderOtherCurrencies(s.other_currencies);
+    renderTopTable(s.top_subscriptions);
+    renderDoughnut(s.department_breakdown);
+    renderBar(s.department_breakdown);
+  } catch (e) { showToast('Error: ' + e.message, 'danger'); }
+}
+
+function renderOtherCurrencies(list) {
+  const card = document.getElementById('other-currencies-card');
+  const tbody = document.getElementById('other-currencies-table');
+  if (!list || !list.length) {
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  tbody.innerHTML = list.map(c => `
+    <tr>
+      <td class="fw-600"><span class="badge bg-light text-dark">${c.currency}</span></td>
+      <td>${c.count}</td>
+      <td class="fw-600">${formatCurrency(c.monthly_recurring, c.currency)}</td>
+      <td>${formatCurrency(c.annual_recurring, c.currency)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderDeptTable(breakdown, totalMonthly) {
+  const tbody = document.getElementById('dept-table');
+  if (!breakdown.length) { tbody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">No data.</td></tr>'; return; }
+  tbody.innerHTML = breakdown.map(d => {
+    const pct = totalMonthly > 0 ? ((parseFloat(d.monthly) / parseFloat(totalMonthly)) * 100).toFixed(1) : 0;
+    return `<tr>
+      <td class="fw-600">${d.department}</td>
+      <td>${formatCurrency(d.monthly)}</td>
+      <td>${formatCurrency(d.annual)}</td>
+      <td>
+        <div class="d-flex align-items-center gap-2">
+          <div style="width:100px;height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden">
+            <div style="width:${pct}%;height:100%;background:#4f46e5;border-radius:999px"></div>
+          </div>
+          <small>${pct}%</small>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function renderTopTable(subs) {
+  const tbody = document.getElementById('top-table');
+  if (!subs || !subs.length) { tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No data.</td></tr>'; return; }
+  tbody.innerHTML = subs.map(s => `<tr>
+    <td class="fw-600">${s.name}</td>
+    <td class="text-muted">${s.vendor}</td>
+    <td><span class="badge bg-light text-dark">${s.category}</span></td>
+    <td>${s.billing_cycle}</td>
+    <td>${formatCurrency(s.amount, s.currency)}</td>
+    <td class="fw-600">${formatCurrency(toMonthly(s.amount, s.billing_cycle), s.currency)}</td>
+    <td>${formatCurrency(toAnnual(s.amount, s.billing_cycle), s.currency)}</td>
+  </tr>`).join('');
+}
+
+const COLORS = ['#4f46e5','#10b981','#f59e0b','#ef4444','#3b82f6','#8b5cf6','#ec4899','#06b6d4'];
+
+function renderDoughnut(breakdown) {
+  const ctx = document.getElementById('deptDoughnut').getContext('2d');
+  if (doughnutChart) doughnutChart.destroy();
+  doughnutChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: breakdown.map(d => d.department),
+      datasets: [{ data: breakdown.map(d => parseFloat(d.monthly)), backgroundColor: COLORS.slice(0, breakdown.length), borderWidth: 2, borderColor: '#fff' }],
+    },
+    options: {
+      cutout: '65%',
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ₹${Math.round(ctx.raw).toLocaleString('en-IN')}/mo` } }
+      }
+    }
+  });
+}
+
+function renderBar(breakdown) {
+  const ctx = document.getElementById('deptBar').getContext('2d');
+  if (barChart) barChart.destroy();
+  barChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: breakdown.map(d => d.department),
+      datasets: [
+        { label: 'Monthly (₹)', data: breakdown.map(d => Math.round(parseFloat(d.monthly))), backgroundColor: '#4f46e5', borderRadius: 6 },
+        { label: 'Annual (₹)', data: breakdown.map(d => Math.round(parseFloat(d.annual))), backgroundColor: '#c7d2fe', borderRadius: 6 },
+      ],
+    },
+    options: {
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y: { ticks: { callback: v => '₹' + v.toLocaleString('en-IN') }, grid: { color: '#f1f5f9' } },
+        x: { grid: { display: false } },
+      },
+    }
+  });
+}
+
+loadAnalytics();
+</script>
+</body>
+</html>
+
