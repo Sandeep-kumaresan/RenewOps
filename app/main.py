@@ -17,10 +17,16 @@ from app.core.config import settings
 from app.db.init_db import init_db
 from app.api.v1 import subscriptions, renewals, analytics
 from app.mcp.server import mcp
-
+from contextlib import asynccontextmanager
 # ---------------------------------------------------------------------------
 # App initialisation
 # ---------------------------------------------------------------------------
+mcp_asgi = mcp.streamable_http_app()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    async with mcp.session_manager.run():
+        yield
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -28,6 +34,7 @@ app = FastAPI(
     description="Subscription & Contract Management Platform – REST API & MCP Server",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # ---------------------------------------------------------------------------
