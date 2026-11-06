@@ -10,6 +10,7 @@ Tools:
   4. update_subscription
   5. get_upcoming_renewals
   6. get_spending_summary
+  7. delete_subscription (with server-side confirmation safeguards)
 
 Transport: Streamable HTTP (compatible with Claude's remote custom connector).
 Security Architecture:
@@ -330,6 +331,120 @@ def get_spending_summary() -> str:
     try:
         summary = analytics_service.get_spending_summary(db, org_id=_org_id())
         return json.dumps(_serialise(summary.model_dump()), indent=2)
+    except Exception as e:
+        return json.dumps({"success": False, "error": str(e)})
+    finally:
+        db.close()
+
+
+# ---------------------------------------------------------------------------
+# Tool 7: delete_subscription (with server-side confirmation safeguards)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def delete_subscription(
+    subscription_id: str,
+    confirm: bool = False,
+    expected_name: str = "",
+) -> str:
+    """
+    Safely delete a subscription record from the RenewOps database.
+
+    CRITICAL SAFEGUARDS (Enforced Server-Side):
+    1. Confirmation Gate: If confirm=False, the server REFUSES to delete.
+       Instead, it returns the subscription details so you can ask the user
+       for explicit confirmation first.
+    2. Identity Safeguard: When confirm=True, expected_name MUST match the
+       actual subscription name stored in the database. If it does not match,
+       the deletion is immediately aborted to prevent deleting the wrong subscription.
+    3. Tenant Isolation: Operates strictly within the authorized organization.
+
+    Workflow:
+      Step 1: Identify the subscription ID and call delete_subscription(subscription_id=...).
+      Step 2: Read the returned details and ask the user:
+              "Are you sure you want to delete [Name] ([Vendor], [Amount])?"
+      Step 3: When the user confirms ("Yes, delete it"), re-call:
+              delete_subscription(subscription_id=..., confirm=True, expected_name="[Name]")
+
+    Args:
+        subscription_id: UUID of the subscription to delete
+        confirm: Must be explicitly set to True to execute deletion (default: False)
+        expected_name: The expected name of the subscription for safety verification
+
+    Returns:
+        JSON string indicating whether deletion succeeded, was blocked by safeguards,
+        or requires confirmation.
+    """
+    db = _db()
+    try:
+        try:
+            sub_uuid = uuid.UUID(subscription_id)
+        except ValueError:
+            return json.dumps({
+                "success": False,
+                "error": f"Invalid subscription_id format: '{subscription_id}'. Must be a valid UUID.",
+            })
+
+        sub = subscription_service.get_subscription(db, sub_uuid, org_id=_org_id())
+        if not sub:
+            return json.dumps({
+                "success": False,
+                "error": "Subscription not found or does not belong to authorized organization.",
+            })
+
+        # Safeguard 1: Explicit confirmation required
+        if not confirm:
+            return json.dumps({
+                "success": False,
+                "requires_confirmation": True,
+                "message": (
+                    f"Confirmation required before deleting '{sub.name}'. Please ask the user to confirm deleting "
+                    f"'{sub.name}' from vendor '{sub.vendor}'. Once confirmed, call delete_subscription "
+                    f"with confirm=True and expected_name='{sub.name}'."
+                ),
+                "subscription_to_delete": {
+                    "id": str(sub.id),
+                    "name": sub.name,
+                    "vendor": sub.vendor,
+                    "amount": float(sub.amount),
+                    "currency": sub.currency,
+                    "billing_cycle": sub.billing_cycle.value if hasattr(sub.billing_cycle, "value") else str(sub.billing_cycle),
+                    "renewal_date": sub.renewal_date.isoformat() if sub.renewal_date else None,
+                    "department": sub.department,
+                    "owner": sub.owner,
+                },
+            }, indent=2)
+
+        # Safeguard 2: Name verification to prevent deleting the wrong subscription
+        if not expected_name or expected_name.strip().lower() != sub.name.strip().lower():
+            return json.dumps({
+                "success": False,
+                "error": (
+                    f"Safety check failed: provided expected_name '{expected_name}' does not match "
+                    f"actual subscription name '{sub.name}'. Deletion aborted to protect data."
+                ),
+            }, indent=2)
+
+        # Execute deletion
+        deleted = subscription_service.delete_subscription(db, sub_uuid, org_id=_org_id())
+        if not deleted:
+            return json.dumps({
+                "success": False,
+                "error": "Failed to delete subscription record from database.",
+            })
+
+        return json.dumps({
+            "success": True,
+            "status": "deleted",
+            "message": f"Subscription '{sub.name}' (ID: {sub.id}) was permanently deleted from RenewOps.",
+            "deleted_subscription": {
+                "id": str(sub.id),
+                "name": sub.name,
+                "vendor": sub.vendor,
+                "amount": float(sub.amount),
+                "currency": sub.currency,
+            },
+        }, indent=2)
     except Exception as e:
         return json.dumps({"success": False, "error": str(e)})
     finally:

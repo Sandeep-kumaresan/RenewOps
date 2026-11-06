@@ -7,6 +7,7 @@ import json
 import uuid
 from decimal import Decimal
 import pytest
+from fastapi import HTTPException
 
 from app.db.init_db import init_db
 from app.db.session import SessionLocal, Base, engine
@@ -166,5 +167,50 @@ def test_claude_mcp_database_dashboard_flow():
         assert edited_sub["amount"] == 35000.0, "Claude must retrieve updated amount edited on dashboard!"
         assert edited_sub["owner"] == "Priya Nair", "Claude must retrieve updated owner edited on dashboard!"
         assert edited_sub["renewal_decision"] == "Under Review", "Claude must retrieve updated decision!"
+
+        # -----------------------------------------------------------------------
+        # Step 10: Claude calls delete_subscription without confirmation (Safeguard 1)
+        # -----------------------------------------------------------------------
+        del_attempt1 = json.loads(mcp_server.delete_subscription(subscription_id=sub_id, confirm=False))
+        assert del_attempt1["success"] is False
+        assert del_attempt1["requires_confirmation"] is True
+        assert "AWS Production" in del_attempt1["message"]
+        # Verify subscription was NOT deleted
+        db.expire_all()
+        assert get_subscription(sub_id=uuid.UUID(sub_id), db=db, org_id=org_id) is not None
+
+        # -----------------------------------------------------------------------
+        # Step 11: Claude calls delete_subscription with wrong name (Safeguard 2)
+        # -----------------------------------------------------------------------
+        del_attempt2 = json.loads(
+            mcp_server.delete_subscription(
+                subscription_id=sub_id, confirm=True, expected_name="Google Workspace"
+            )
+        )
+        assert del_attempt2["success"] is False
+        assert "Safety check failed" in del_attempt2["error"]
+        # Verify subscription was NOT deleted
+        db.expire_all()
+        assert get_subscription(sub_id=uuid.UUID(sub_id), db=db, org_id=org_id) is not None
+
+        # -----------------------------------------------------------------------
+        # Step 12: User confirms -> Claude calls delete_subscription with valid confirmation
+        # -----------------------------------------------------------------------
+        del_attempt3 = json.loads(
+            mcp_server.delete_subscription(
+                subscription_id=sub_id, confirm=True, expected_name="AWS Production"
+            )
+        )
+        assert del_attempt3["success"] is True
+        assert del_attempt3["status"] == "deleted"
+
+        # -----------------------------------------------------------------------
+        # Step 13: Dashboard & Database immediately reflect the deletion
+        # -----------------------------------------------------------------------
+        db.expire_all()
+        assert db.query(Subscription).filter(Subscription.id == uuid.UUID(sub_id)).first() is None
+        with pytest.raises(HTTPException) as exc_info:
+            get_subscription(sub_id=uuid.UUID(sub_id), db=db, org_id=org_id)
+        assert exc_info.value.status_code == 404, "Dashboard API must return 404 for deleted subscription!"
     finally:
         db.close()

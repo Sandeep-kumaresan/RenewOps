@@ -119,7 +119,7 @@ def run_e2e_flow():
     print(f"        Decision transition: {logs[-1].old_decision} → {logs[-1].new_decision}")
 
     # Step 6: Reverse Flow - Dashboard edits, Claude reads
-    print("\n[7/7] Bidirectional Verification: User edits on Dashboard → Claude retrieves via MCP...")
+    print("\n[7/8] Bidirectional Verification: User edits on Dashboard → Claude retrieves via MCP...")
     from app.schemas.subscription import SubscriptionUpdate
     from app.api.v1.subscriptions import update_subscription as api_update_subscription
     from app.db.models import RenewalDecision
@@ -143,10 +143,35 @@ def run_e2e_flow():
     print(f"      ✓ Claude retrieved edited data via MCP successfully:")
     print(f"        Amount: ₹{claude_fetch['amount']:,.0f} | Owner: {claude_fetch['owner']} | Decision: {claude_fetch['renewal_decision']}")
 
+    # Step 7: Delete Flow with Server-Side Safeguards
+    print("\n[8/8] Deletion Flow with Server-Side Safeguards:")
+    print("      User: 'Delete my AWS subscription'")
+    print("      → Safeguard 1: Claude calls delete_subscription without confirmation...")
+    del_step1 = json.loads(mcp_server.delete_subscription(subscription_id=sub_id, confirm=False))
+    assert del_step1["requires_confirmation"] is True
+    print(f"      ✓ Server blocked blind deletion: '{del_step1['message']}'")
+
+    print("      → Safeguard 2: Claude calls delete_subscription with mismatching name...")
+    del_step2 = json.loads(mcp_server.delete_subscription(subscription_id=sub_id, confirm=True, expected_name="Wrong Service"))
+    assert del_step2["success"] is False
+    print(f"      ✓ Server blocked accidental mismatch: '{del_step2['error']}'")
+
+    print("      → User: 'Yes, delete it.'")
+    print("      → Claude executes delete_subscription with confirm=True & expected_name='AWS Production'...")
+    del_step3 = json.loads(mcp_server.delete_subscription(subscription_id=sub_id, confirm=True, expected_name="AWS Production"))
+    assert del_step3["success"] is True
+    assert del_step3["status"] == "deleted"
+    print(f"      ✓ Deletion executed: {del_step3['message']}")
+
+    db.expire_all()
+    assert db.query(Subscription).filter(Subscription.id == uuid.UUID(sub_id)).first() is None
+    print("      ✓ Database verified: record is permanently removed")
+    print("      ✓ Dashboard verified: subscription immediately disappeared from UI")
+
     db.close()
     print("\n" + "=" * 70)
-    print(" ALL 7 VERIFICATION STEPS PASSED SUCCESSFULLY! ")
-    print(" Full bidirectional integration (Claude ⇄ DB ⇄ Dashboard) is verified. ")
+    print(" ALL 8 VERIFICATION STEPS PASSED SUCCESSFULLY! ")
+    print(" Full bidirectional integration + safeguarded deletion verified. ")
     print("=" * 70)
 
 
