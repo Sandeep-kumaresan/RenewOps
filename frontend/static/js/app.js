@@ -137,8 +137,11 @@ function riskBadge(risk) {
 // ---------------------------------------------------------------------------
 function markActiveNav() {
   const path = window.location.pathname;
+  const isDashboardPath = ['/', '/main', '/dashboard', '/index.html'].includes(path);
   document.querySelectorAll('#sidebar .nav-link').forEach(a => {
-    a.classList.toggle('active', a.getAttribute('href') === path || (path === '/' && a.getAttribute('href') === '/'));
+    const href = a.getAttribute('href');
+    const isDashboardLink = href === '/' || href === '/index.html' || href === '/main';
+    a.classList.toggle('active', (isDashboardLink && isDashboardPath) || href === path);
   });
 }
 
