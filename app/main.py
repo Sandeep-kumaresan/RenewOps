@@ -154,10 +154,12 @@ if os.path.isdir(frontend_dir):
     app.mount("/static", StaticFiles(directory=os.path.join(frontend_dir, "static")), name="static")
     # Mount MCP at /mcp
     app.mount("/mcp", mcp_asgi)
+    @app.get("/", include_in_schema=False)
+    def serve_index():
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
     @app.get("/main", include_in_schema=False)
     def serve_index():
         return FileResponse(os.path.join(frontend_dir, "index.html"))
-
     @app.get("/{page}", include_in_schema=False)
     def serve_page(page: str):
         if page in ("mcp", "api", "docs", "redoc", "openapi.json", "health"):
