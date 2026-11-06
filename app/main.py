@@ -17,17 +17,17 @@ from app.core.config import settings
 from app.db.init_db import init_db
 from app.api.v1 import subscriptions, renewals, analytics
 from app.mcp.server import mcp
-from starlette.routing import Route
-from starlette.types import Scope, Receive, Send
+# from starlette.routing import Route
+# from starlette.types import Scope, Receive, Send
 from contextlib import asynccontextmanager
 # ---------------------------------------------------------------------------
 # App initialisation
 # ---------------------------------------------------------------------------
 
 # Configure internal MCP route path to root so FastAPI mount at /mcp forwards cleanly
-mcp.settings.streamable_http_path = ""
+# Configure MCP's internal path to root.
+mcp.settings.streamable_http_path = "/"
 mcp_asgi = mcp.streamable_http_app()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -94,41 +94,41 @@ app.include_router(analytics.router, prefix=settings.API_V1_PREFIX)
 # Streamable HTTP MCP Dispatcher (/mcp and /mcp/...)
 # ---------------------------------------------------------------------------
 
-async def mcp_dispatcher(scope: Scope, receive: Receive, send: Send):
-    """
-    Directly forwards HTTP requests for both /mcp and /mcp/... to mcp_asgi.
-    Normalizes path so clients connecting to either https://host/mcp
-    or https://host/mcp/ are routed seamlessly without 405 Method Not Allowed errors.
-    """
-    if scope["type"] == "http":
-        req_path = scope.get("path", "")
-        if req_path == "/mcp" or req_path == "/mcp/":
-            scope = dict(scope)
-            scope["path"] = "/"
-            scope["root_path"] = scope.get("root_path", "") + "/mcp"
-        elif req_path.startswith("/mcp/"):
-            scope = dict(scope)
-            scope["path"] = req_path[4:]
-            scope["root_path"] = scope.get("root_path", "") + "/mcp"
-    await mcp_asgi(scope, receive, send)
+# async def mcp_dispatcher(scope: Scope, receive: Receive, send: Send):
+#     """
+#     Directly forwards HTTP requests for both /mcp and /mcp/... to mcp_asgi.
+#     Normalizes path so clients connecting to either https://host/mcp
+#     or https://host/mcp/ are routed seamlessly without 405 Method Not Allowed errors.
+#     """
+#     if scope["type"] == "http":
+#         req_path = scope.get("path", "")
+#         if req_path == "/mcp" or req_path == "/mcp/":
+#             scope = dict(scope)
+#             scope["path"] = "/"
+#             scope["root_path"] = scope.get("root_path", "") + "/mcp"
+#         elif req_path.startswith("/mcp/"):
+#             scope = dict(scope)
+#             scope["path"] = req_path[4:]
+#             scope["root_path"] = scope.get("root_path", "") + "/mcp"
+#     await mcp_asgi(scope, receive, send)
 
 
-app.router.routes.append(
-    Route(
-        "/mcp",
-        endpoint=mcp_dispatcher,
-        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
-        include_in_schema=False,
-    )
-)
-app.router.routes.append(
-    Route(
-        "/mcp/{subpath:path}",
-        endpoint=mcp_dispatcher,
-        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
-        include_in_schema=False,
-    )
-)
+# app.router.routes.append(
+#     Route(
+#         "/mcp",
+#         endpoint=mcp_dispatcher,
+#         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+#         include_in_schema=False,
+#     )
+# )
+# app.router.routes.append(
+#     Route(
+#         "/mcp/{subpath:path}",
+#         endpoint=mcp_dispatcher,
+#         methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+#         include_in_schema=False,
+#     )
+# )
 
 # ---------------------------------------------------------------------------
 # Health check
@@ -152,7 +152,8 @@ def health():
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.isdir(frontend_dir):
     app.mount("/static", StaticFiles(directory=os.path.join(frontend_dir, "static")), name="static")
-
+    # Mount MCP at /mcp
+    app.mount("/mcp", mcp_asgi)
     @app.get("/", include_in_schema=False)
     def serve_index():
         return FileResponse(os.path.join(frontend_dir, "index.html"))
